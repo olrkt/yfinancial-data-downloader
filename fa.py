@@ -3,6 +3,8 @@ import yfinance as yf
 import pandas as pd
 import io
 from typing import Any
+import requests 
+from requests_html import HTMLSession # 🚨 새로 추가된 라이브러리
 
 # --- 1. 페이지 설정 및 제목 ---
 st.set_page_config(
@@ -18,14 +20,22 @@ st.markdown("---")
 def fetch_and_create_excel(ticker: str) -> io.BytesIO | None:
     """
     yfinance에서 연간/분기 재무 데이터와 주요 통계를 가져와 메모리 내 엑셀 파일을 생성합니다.
-    (yfinance의 속성명 변경에 대응하여 'financials'와 'quarterly_financials'를 활용합니다.)
+    (yfinance의 속성명 변경에 대응하고, 서버 차단 회피를 위해 세션 사용)
     """
+    
+    # 🌟 requests-html 세션을 사용하여 서버 차단 우회 시도
+    session = HTMLSession()
+    
     try:
-        stock = yf.Ticker(ticker)
+        # yf.Ticker 호출 시 session 객체를 명시적으로 전달합니다.
+        stock = yf.Ticker(ticker, session=session) 
+        
         # 티커가 유효한지 확인하기 위한 기본 정보 요청
         if not stock.info:
             return None
-    except Exception:
+    except Exception as e:
+        # 디버깅을 위해 예외 내용을 Streamlit 로그에 출력 (선택 사항)
+        print(f"yfinance Ticker 초기화 오류: {e}")
         return None
 
     # 데이터 수집 (Sheet Name: DataFrame 구조)
@@ -33,11 +43,9 @@ def fetch_and_create_excel(ticker: str) -> io.BytesIO | None:
     
     # ----------------------------------------------------
     # 재무 데이터 수집 및 시트 이름 명확화 (연간/분기)
-    # yfinance의 최신 버전(0.2.x) 호환성을 위해 속성명을 변경합니다.
     # ----------------------------------------------------
 
     # 연간 데이터
-    # stock.income_stmt 대신 financials 사용
     if not stock.financials.empty:
         financial_data["Income_Statement (연간)"] = stock.financials
     if not stock.balance_sheet.empty:
@@ -46,7 +54,6 @@ def fetch_and_create_excel(ticker: str) -> io.BytesIO | None:
         financial_data["Cash_Flow (연간)"] = stock.cashflow
 
     # 분기별 데이터
-    # stock.quarterly_income_stmt 대신 quarterly_financials 사용
     if not stock.quarterly_financials.empty:
         financial_data["Income_Statement (분기)"] = stock.quarterly_financials
     if not stock.quarterly_balance_sheet.empty:
@@ -59,7 +66,7 @@ def fetch_and_create_excel(ticker: str) -> io.BytesIO | None:
     # ----------------------------------------------------
     info: dict[str, Any] = stock.info
     key_stats_raw = {
-        "Full Name (전체 이름)": info.get('longName', 'N/A'), # 종목 이름 추가
+        "Full Name (전체 이름)": info.get('longName', 'N/A'),
         "Market Cap (시가총액)": info.get('marketCap'),
         "Trailing P/E (PER)": info.get('trailingPE'), 
         "Price/Book (PBR)": info.get('priceToBook'), 
@@ -90,14 +97,12 @@ def fetch_and_create_excel(ticker: str) -> io.BytesIO | None:
                         df.to_excel(writer, sheet_name=sheet_name, index=True)
                     else:
                         # 재무 3표는 날짜를 가로(컬럼)로 만들기 위해 Transpose
-                        # 인덱스 이름 설정하여 엑셀에서 명확하게 표시
                         df.T.index.name = "Date"
                         df.T.to_excel(writer, sheet_name=sheet_name, index=True)
                         
                     is_data_present = True
 
     except Exception as e:
-        # 오류 발생 시 디버깅을 위해 에러 로그 출력 가능
         st.error(f"Excel 파일 생성 중 오류 발생: {e}")
         return None
 
@@ -110,7 +115,7 @@ def fetch_and_create_excel(ticker: str) -> io.BytesIO | None:
 # --- 3. Streamlit UI 구현 (단일 페이지) ---
 
 st.header("⬇️ 개별 티커 데이터 다운로드")
-st.info("재무 3표 데이터와 주요 통계 지표(PER, PBR, ROE 포함)를 하나의 엑셀 파일로 추출합니다. 연간/분기 데이터가 시트 이름으로 명확히 구분됩니다.")
+st.info("재무 3표 데이터와 주요 통계 지표(PER, PBR, ROE 포함)를 하나의 엑셀 파일로 추출합니다. 서버 차단 회피 로직이 적용되었습니다.")
 
 ticker_input = st.text_input(
     "분석할 주식 티커를 입력하고 Enter를 누르세요 (예: TSLA, AAPL, 005930.KS)", 
