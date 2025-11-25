@@ -1,4 +1,6 @@
 streamlit
-pandas
 yfinance
+pandas
 openpyxl
+requests
+requests-html
